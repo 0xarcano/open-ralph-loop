@@ -35,8 +35,8 @@ flowchart LR
 |-------------|--------|
 | **[OpenCode](https://opencode.ai/)** | `opencode` on `PATH` |
 | **`jq`** | Parse `.ralph/prd.json` |
-| **`curl`** | Pre-flight against vLLM / OpenAI-compatible APIs |
-| **A model** | Configured in OpenCode (e.g. vLLM in `.opencode/opencode.json`) |
+| **`curl`** | Pre-flight against your OpenAI-compatible server (vLLM, Ollama, etc.) |
+| **A model** | Configured in OpenCode (e.g. `vllm/...` or `ollama/...` in `.opencode/opencode.json`) |
 
 ---
 
@@ -50,7 +50,8 @@ flowchart LR
 
    ```bash
    cp .ralph/.env.example.minimal .ralph/.env
-   # Edit .ralph/.env — at minimum set VLLM_API_KEY if your server needs it
+   # Edit .ralph/.env — set RALPH_LLM_PROVIDER (ollama | vllm) if not inferred from the model id,
+   # and RALPH_LLM_API_KEY if your server requires a bearer token
    ```
 
    Full list of variables: **`.ralph/.env.example`**.
@@ -91,9 +92,10 @@ The prompt file is passed as the **message** to each `opencode run`; the agent f
 
 ## Configuration tips
 
-- **Tight context (vLLM ~32k):** pre-flight sets a completion budget from `max_model_len`; tune **`RALPH_MAX_OUTPUT_TOKENS`**, **`RALPH_COMPLETION_HARD_CAP`**, and **`RALPH_MIN_CTX`** in `.ralph/.env` if you hit length errors.
-- **Cannot reach vLLM from the shell** (e.g. WSL networking): set **`RALPH_VLLM_URL`** to a base URL that **`curl` can reach**, matching OpenCode’s server.
-- **Tool calling:** vLLM should use real **`tool_calls`**; for Qwen on vLLM, prefer **Instruct** (non-Coder) checkpoints and **`--enable-auto-tool-choice`** / **`--tool-call-parser hermes`** as described in `.ralph/.env.example`.
+- **Provider:** defaults to **vLLM** (explicit in `.env.example*`, and when **`RALPH_LLM_PROVIDER`** is unset the model id must be **`ollama/...`** to use Ollama; everything else follows vLLM URL rules). Set **`RALPH_LLM_PROVIDER=ollama`** for Ollama when the model id is not `ollama/...`. **`RALPH_LLM_API_BASE`** is the OpenAI-compatible root including **`/v1`** (per provider: Ollama `http://127.0.0.1:11434/v1` when provider is ollama, vLLM from OpenCode `baseURL` when provider is vllm).
+- **Tight context (~32k):** when the server reports `max_model_len`, pre-flight caps completion tokens; tune **`RALPH_MAX_OUTPUT_TOKENS`**, **`RALPH_COMPLETION_HARD_CAP`**, and **`RALPH_MIN_CTX`**. Ollama often omits `max_model_len` on **`GET /v1/models`**; use **`RALPH_FALLBACK_MAX_OUTPUT`** if needed.
+- **Cannot reach the server from the shell** (e.g. WSL networking): set **`RALPH_LLM_API_BASE`** to a URL that **`curl` can reach**, matching OpenCode’s server.
+- **Tool calling:** local OpenAI stacks should return real **`tool_calls`**; for Qwen on vLLM, prefer **Instruct** (non-Coder) checkpoints and **`--enable-auto-tool-choice`** / **`--tool-call-parser hermes`** as described in `.ralph/.env.example`.
 
 ---
 

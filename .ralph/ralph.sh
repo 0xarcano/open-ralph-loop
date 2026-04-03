@@ -7,12 +7,15 @@
 #
 # Requires: opencode (https://opencode.ai/), jq, curl
 # Optional env in .ralph/.env (Ralph/OpenCode only; separate from project-root .env):
+#   RALPH_LLM_PROVIDER — ollama | vllm (default when unset: vLLM — infer ollama only if model id is ollama/*;
+#                        all other ids use vLLM rules: base URL from opencode.json unless RALPH_LLM_API_BASE is set)
+#   RALPH_LLM_API_BASE — OpenAI-compatible base for pre-flight GET …/v1/models (default: ollama →
+#                        http://127.0.0.1:11434/v1; vllm → from .opencode/opencode.json baseURL)
+#   RALPH_LLM_API_KEY  — Bearer token when the server requires Authorization (often empty for local Ollama)
 #   RALPH_MODEL        — opencode run --model (e.g. anthropic/claude-sonnet-4-20250514)
 #   RALPH_AGENT        — opencode run --agent (e.g. ralph)
 #   RALPH_ATTACH       — opencode run --attach (e.g. http://localhost:4096)
 #   RALPH_PROMPT_FILE  — prompt file relative to .ralph/ (default prompt.md)
-#   RALPH_VLLM_URL     — vLLM base URL for pre-flight check (default: from .opencode/opencode.json)
-#   RALPH_VLLM_API_KEY — API key env var name for pre-flight (default: VLLM_API_KEY)
 #   RALPH_MIN_CTX      — minimum context tokens required (default: 4096)
 #   RALPH_MAX_OUTPUT_TOKENS — optional upper bound for OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX
 #                             after the completion budget is computed (see below)
@@ -69,7 +72,7 @@ if [[ -f "$ENV_FILE" ]]; then
   source "$ENV_FILE"
   set +a
 else
-  echo "Warning: missing $ENV_FILE (create it for VLLM_API_KEY, RALPH_*, etc.)." >&2
+  echo "Warning: missing $ENV_FILE (create it for RALPH_LLM_*, RALPH_*, etc.)." >&2
 fi
 
 # ── Resolve prompt file (under .ralph/) ──────────────────────────────────────
@@ -101,21 +104,92 @@ ralph_resolve_oc_model() {
   printf '%s' "$m"
 }
 
-# ── Pre-flight: query vLLM max_model_len ─────────────────────────────────────
+# ── Which local OpenAI-compatible stack (Ollama vs vLLM) ───────────────────────
+ralph_resolve_llm_provider() {
+  if [[ -n "${RALPH_LLM_PROVIDER:-}" ]]; then
+    case "${RALPH_LLM_PROVIDER}" in
+      ollama|vllm) printf '%s' "${RALPH_LLM_PROVIDER}"; return ;;
+      *)
+        echo "Error: RALPH_LLM_PROVIDER must be 'ollama' or 'vllm' (got: ${RALPH_LLM_PROVIDER})" >&2
+        exit 1
+        ;;
+    esac
+  fi
+  local m=""
+  m="$(ralph_resolve_oc_model)"
+  case "$m" in
+    ollama/*) printf ollama ;;
+    vllm/*)   printf vllm ;;
+    *)        printf vllm ;;
+  esac
+}
+
+# Fail fast if OpenCode model id is not listed (vllm/* and ollama/* only).
+ralph_verify_served_model_id() {
+  local resp="$1"
+  local oc_model="$2"
+  local base_url="$3"
+
+  if [[ "$oc_model" == vllm/* ]]; then
+    local vid="${oc_model#vllm/}"
+    if echo "$resp" | jq -e --arg id "$vid" '[.data[]? | select(.id == $id)] | length > 0' >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "" >&2
+    echo "═══════════════════════════════════════════════════════════════════" >&2
+    echo "  FATAL: OpenCode is set to vllm/$vid but that id is missing from GET ${base_url}/models." >&2
+    echo "" >&2
+    echo "  Fix one of:" >&2
+    echo "    • Serve that model in vLLM, or" >&2
+    echo "    • Set RALPH_MODEL to a served id and add the same key under provider.vllm.models in opencode.json." >&2
+    echo "" >&2
+    echo "  Served model ids (use exactly, including case):" >&2
+    echo "$resp" | jq -r '.data[]? | "    \(.id)"' >&2
+    echo "═══════════════════════════════════════════════════════════════════" >&2
+    return 1
+  fi
+
+  if [[ "$oc_model" == ollama/* ]]; then
+    local oid="${oc_model#ollama/}"
+    if echo "$resp" | jq -e --arg id "$oid" '[.data[]? | select(.id == $id)] | length > 0' >/dev/null 2>&1; then
+      return 0
+    fi
+    echo "" >&2
+    echo "═══════════════════════════════════════════════════════════════════" >&2
+    echo "  FATAL: OpenCode is set to ollama/$oid but that id is missing from GET ${base_url}/models." >&2
+    echo "" >&2
+    echo "  Fix: pull/run the model in Ollama, or set RALPH_MODEL to a listed id (see opencode.json / ollama provider)." >&2
+    echo "" >&2
+    echo "  Served model ids (use exactly, including tag):" >&2
+    echo "$resp" | jq -r '.data[]? | "    \(.id)"' >&2
+    echo "═══════════════════════════════════════════════════════════════════" >&2
+    return 1
+  fi
+
+  return 0
+}
+
+# ── Pre-flight: query OpenAI-compatible GET /v1/models (vLLM, Ollama, etc.) ───
 preflight_check() {
-  local base_url="${RALPH_VLLM_URL:-}"
-  local api_key="${VLLM_API_KEY:-}"
+  local provider
+  provider="$(ralph_resolve_llm_provider)"
+  local base_url="${RALPH_LLM_API_BASE:-}"
+  local api_key="${RALPH_LLM_API_KEY:-}"
   local min_ctx="${RALPH_MIN_CTX:-4096}"
 
   if [[ -z "$base_url" ]]; then
-    for cfg in "$PROJECT_ROOT/.opencode/opencode.json" \
-               "$HOME/.config/opencode/opencode.json" \
-               "$PROJECT_ROOT/opencode.json"; do
-      if [[ -f "$cfg" ]]; then
-        base_url="$(jq -r '.. | .baseURL? // empty' "$cfg" 2>/dev/null | head -1)"
-        [[ -n "$base_url" ]] && break
-      fi
-    done
+    if [[ "$provider" == "ollama" ]]; then
+      base_url="http://127.0.0.1:11434/v1"
+    else
+      for cfg in "$PROJECT_ROOT/.opencode/opencode.json" \
+                 "$HOME/.config/opencode/opencode.json" \
+                 "$PROJECT_ROOT/opencode.json"; do
+        if [[ -f "$cfg" ]]; then
+          base_url="$(jq -r '.. | .baseURL? // empty' "$cfg" 2>/dev/null | head -1)"
+          [[ -n "$base_url" ]] && break
+        fi
+      done
+    fi
   fi
 
   [[ -z "$base_url" ]] && return 0
@@ -129,52 +203,49 @@ preflight_check() {
   local resp
   resp="$(curl -sf --max-time 5 ${auth_header:+-H "$auth_header"} "${base_url}/models" 2>/dev/null)" || return 0
 
+  ralph_verify_served_model_id "$resp" "$oc_model" "$base_url" || exit 2
+
   local max_len=""
   if [[ "$oc_model" == vllm/* ]]; then
     local vid="${oc_model#vllm/}"
     max_len="$(echo "$resp" | jq -r --arg id "$vid" '(.data[]? | select(.id == $id) | .max_model_len) // empty' 2>/dev/null | head -1)"
+  elif [[ "$oc_model" == ollama/* ]]; then
+    local oid="${oc_model#ollama/}"
+    max_len="$(echo "$resp" | jq -r --arg id "$oid" '(.data[]? | select(.id == $id) | .max_model_len) // empty' 2>/dev/null | head -1)"
   fi
   if [[ -z "$max_len" ]]; then
     max_len="$(echo "$resp" | jq -r '.data[0].max_model_len // empty' 2>/dev/null)"
   fi
   [[ -z "$max_len" ]] && return 0
 
-  export RALPH_VLLM_MAX_MODEL_LEN="$max_len"
-  echo "Pre-flight: vLLM max_model_len = $max_len (minimum required: $min_ctx)"
+  export RALPH_MAX_MODEL_LEN="$max_len"
+  echo "Pre-flight: max_model_len = $max_len (minimum required: $min_ctx) [${provider}]"
   if [[ "$oc_model" == vllm/* ]]; then
     local vid="${oc_model#vllm/}"
-    if echo "$resp" | jq -e --arg id "$vid" '[.data[]? | select(.id == $id)] | length > 0' >/dev/null 2>&1; then
-      echo "Pre-flight: vLLM lists model id '$vid' (matches OpenCode model)"
-    else
-      echo "" >&2
-      echo "═══════════════════════════════════════════════════════════════════" >&2
-      echo "  FATAL: OpenCode is set to vllm/$vid but that id is missing from GET ${base_url}/models." >&2
-      echo "" >&2
-      echo "  Fix one of:" >&2
-      echo "    • Serve that model in vLLM, or" >&2
-      echo "    • Set RALPH_MODEL to a served id and add the same key under provider.vllm.models in opencode.json." >&2
-      echo "" >&2
-      echo "  Served model ids (use exactly, including case):" >&2
-      echo "$resp" | jq -r '.data[]? | "    \(.id)"' >&2
-      echo "═══════════════════════════════════════════════════════════════════" >&2
-      exit 2
-    fi
+    echo "Pre-flight: server lists model id '$vid' (matches OpenCode model)"
+  elif [[ "$oc_model" == ollama/* ]]; then
+    local oid="${oc_model#ollama/}"
+    echo "Pre-flight: server lists model id '$oid' (matches OpenCode model)"
   fi
 
   if [[ "$max_len" -lt "$min_ctx" ]]; then
     echo "" >&2
     echo "═══════════════════════════════════════════════════════════════════" >&2
-    echo "  FATAL: vLLM max_model_len ($max_len) is too small for OpenCode." >&2
+    echo "  FATAL: max_model_len ($max_len) is too small for OpenCode." >&2
     echo "" >&2
     echo "  OpenCode's system prompt alone uses ~$OPENCODE_MIN_SYSTEM_PROMPT_TOKENS tokens." >&2
     echo "  With max_model_len=$max_len there is no room for output." >&2
     echo "" >&2
-    echo "  FIX: restart vLLM with a larger --max-model-len, e.g.:" >&2
-    echo "" >&2
-    echo "    vllm serve Qwen/Qwen2.5-7B-Instruct-AWQ \\" >&2
-    echo "      --max-model-len 8192 \\" >&2
-    echo "      --enable-auto-tool-choice \\" >&2
-    echo "      --tool-call-parser hermes" >&2
+    if [[ "$provider" == "ollama" ]]; then
+      echo "  FIX: increase context in Ollama (e.g. Modelfile NUM_CTX) or use a larger context model." >&2
+    else
+      echo "  FIX: restart vLLM with a larger --max-model-len, e.g.:" >&2
+      echo "" >&2
+      echo "    vllm serve Qwen/Qwen2.5-7B-Instruct-AWQ \\" >&2
+      echo "      --max-model-len 8192 \\" >&2
+      echo "      --enable-auto-tool-choice \\" >&2
+      echo "      --tool-call-parser hermes" >&2
+    fi
     echo "" >&2
     echo "  Or use a hosted provider (anthropic, openai, etc.)." >&2
     echo "═══════════════════════════════════════════════════════════════════" >&2
@@ -205,8 +276,8 @@ preflight_check() {
   fi
 }
 
-ralph_ensure_output_token_cap_without_vllm() {
-  [[ -n "${RALPH_VLLM_MAX_MODEL_LEN:-}" ]] && return 0
+ralph_ensure_output_token_cap_fallback() {
+  [[ -n "${RALPH_MAX_MODEL_LEN:-}" ]] && return 0
   local fb="${RALPH_FALLBACK_MAX_OUTPUT:-8192}"
   if [[ -n "${RALPH_MAX_OUTPUT_TOKENS:-}" ]] && [[ "${RALPH_MAX_OUTPUT_TOKENS}" =~ ^[0-9]+$ ]] \
      && [[ "$fb" -gt "${RALPH_MAX_OUTPUT_TOKENS}" ]]; then
@@ -216,8 +287,8 @@ ralph_ensure_output_token_cap_without_vllm() {
   if [[ "$cur" -gt "$fb" ]]; then
     export OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX="$fb"
     echo "" >&2
-    echo "Pre-flight: could not read vLLM max_model_len (unreachable ${RALPH_VLLM_URL:-opencode.json baseURL}?)." >&2
-    echo "            Set RALPH_VLLM_URL to a reachable GET .../v1/models endpoint, or tune RALPH_FALLBACK_MAX_OUTPUT." >&2
+    echo "Pre-flight: could not read max_model_len from GET .../v1/models (Ollama often omits it, or server unreachable?)." >&2
+    echo "            Set RALPH_LLM_API_BASE to a reachable OpenAI-compatible base, or tune RALPH_FALLBACK_MAX_OUTPUT." >&2
     echo "            Applying OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=$fb so requests stay under typical context." >&2
   fi
 }
@@ -412,10 +483,12 @@ ralph_ensure_progress_patterns_section() {
 }
 
 ralph_preflight_warn_qwen_coder_family() {
-  local m
+  local m rest
   m="$(ralph_resolve_oc_model)"
   [[ -z "$m" ]] && return 0
-  case "${m#vllm/}" in
+  rest="${m#vllm/}"
+  rest="${rest#ollama/}"
+  case "$rest" in
     *Coder*|*coder*) ;;
     *) return 0 ;;
   esac
@@ -424,7 +497,7 @@ ralph_preflight_warn_qwen_coder_family() {
 }
 
 preflight_check
-ralph_ensure_output_token_cap_without_vllm
+ralph_ensure_output_token_cap_fallback
 ralph_preflight_warn_qwen_coder_family
 
 # Autocompact is ON by default (reduces unbounded multi-turn context). Set RALPH_DISABLE_AUTOCOMPACT=1 for old behavior.
@@ -465,6 +538,8 @@ echo "Starting Open Ralph — max iterations: $MAX_ITERATIONS"
 echo "OpenCode: $(command -v opencode)"
 echo "Working directory (OpenCode cwd): $PROJECT_ROOT"
 echo "Ralph data: $RALPH_HOME"
+echo "  LLM provider (pre-flight): $(ralph_resolve_llm_provider)"
+[[ -n "${RALPH_LLM_API_BASE:-}" ]] && echo "  RALPH_LLM_API_BASE: $RALPH_LLM_API_BASE"
 [[ -n "${RALPH_MODEL:-}" ]]  && echo "  model:  $RALPH_MODEL"
 [[ -n "${RALPH_AGENT:-}" ]]  && echo "  agent:  $RALPH_AGENT"
 [[ -n "${RALPH_ATTACH:-}" ]] && echo "  attach: $RALPH_ATTACH"
@@ -503,10 +578,10 @@ for i in $(seq 1 "$MAX_ITERATIONS"); do
     echo "" >&2
     if echo "$OUTPUT" | grep -qE "output tokens|max_tokens|requested.*output"; then
       echo "FATAL: prompt + max output tokens exceed model context (often OpenCode default 32k output)." >&2
-      echo "       Ensure ./ralph.sh preflight can curl vLLM (set RALPH_VLLM_URL), or set" >&2
+      echo "       Ensure ./ralph.sh preflight can curl your OpenAI-compatible server (set RALPH_LLM_API_BASE), or set" >&2
       echo "       OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX or RALPH_FALLBACK_MAX_OUTPUT in .ralph/.env." >&2
     else
-      echo "FATAL: context length exceeded. Raise vLLM --max-model-len or shorten the agent prompt/tools." >&2
+      echo "FATAL: context length exceeded. Raise server context (vLLM --max-model-len, Ollama NUM_CTX, etc.) or shorten prompts/tools." >&2
     fi
     exit 2
   fi

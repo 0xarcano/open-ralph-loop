@@ -7,11 +7,11 @@ Follow the **Ralph agent** profile for tool rules and context discipline (`.open
 - **Do not** invoke **`find-skills`**, `npx skills`, or hunt for external skills. This run is **only** the numbered task list below (PRD → one story → checks → commit → progress).
 - OpenCode **cwd is the repository root**. Ralph files use a **leading dot**: **`.ralph/prd.json`** and **`.ralph/progress.txt`** — **not** `./ralph/...` (that path is wrong and will not exist).
 
-## vLLM / Ralph loop tuning
+## Local LLM / Ralph loop tuning
 
-**`./ralph.sh` preflight** sets a **small completion budget** (roughly **min(`max_model_len`/4, 8192)** by default) so long prompts and tool traces do not hit *“requested N output tokens and your prompt contains at least M input tokens”*. **Write code with `edit`/`write`**; do not paste huge blobs into chat.
+**`./ralph.sh` preflight** sets a **small completion budget** (roughly **min(`max_model_len`/4, 8192)** when the server reports `max_model_len`) so long prompts and tool traces do not hit *“requested N output tokens and your prompt contains at least M input tokens”*. **Write code with `edit`/`write`**; do not paste huge blobs into chat.
 
-If you see **maximum context length** / **output tokens** errors, shorten reads and replies; the operator can raise vLLM `--max-model-len`, set **`RALPH_COMPLETION_HARD_CAP`** / **`RALPH_MAX_OUTPUT_TOKENS`** in `.ralph/.env`, or set **`RALPH_MIN_CTX`** to match the server’s `max_model_len`.
+If you see **maximum context length** / **output tokens** errors, shorten reads and replies; the operator can raise context on the server (e.g. vLLM `--max-model-len`, Ollama `NUM_CTX`), set **`RALPH_COMPLETION_HARD_CAP`** / **`RALPH_MAX_OUTPUT_TOKENS`** or **`RALPH_FALLBACK_MAX_OUTPUT`** in `.ralph/.env`, or set **`RALPH_MIN_CTX`** when `max_model_len` is available.
 
 ## Your task
 
