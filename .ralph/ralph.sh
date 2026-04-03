@@ -456,7 +456,7 @@ ralph_ensure_progress_story_sections
 
 RUN_ARGS=(run)
 [[ -n "${RALPH_MODEL:-}" ]]  && RUN_ARGS+=(--model "$RALPH_MODEL")
-[[ -n "${RALPH_AGENT:-}" ]]  && RUN_ARGS+=(--agent "$RALPH_AGENT")
+[[ -n "${RALPH_AGENT:-ralph}" ]]  && RUN_ARGS+=(--agent "$RALPH_AGENT")
 [[ -n "${RALPH_ATTACH:-}" ]] && RUN_ARGS+=(--attach "$RALPH_ATTACH")
 
 PROMPT_CONTENT="$(cat "$PROMPT_FILE")"
