@@ -1,0 +1,8 @@
+# Environment (examples stay tracked)
+.env
+
+# Local working state (use prd.json.example; progress is generated)
+prd.json
+progress.txt
+archive/
+.last-branch

@@ -1,0 +1,17 @@
+# Environment and secrets at repo root (examples stay tracked)
+.env
+.env.local
+.env.*.local
+
+# Logs and caches
+*.log
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / backup
+*~
+*.swp
+*.swo
