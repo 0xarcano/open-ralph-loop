@@ -1,5 +1,5 @@
 ---
-description: Minimal Ralph agent for tight context windows
+description: Ralph Loop agent for tight context windows
 mode: primary
 tools:
   bash: true
