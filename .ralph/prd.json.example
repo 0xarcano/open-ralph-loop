@@ -24,7 +24,7 @@
         "Each task card shows colored priority badge (red=high, yellow=medium, gray=low)",
         "Priority visible without hovering or clicking",
         "Typecheck passes",
-        "Verify in browser or documented manual verification in progress.txt"
+        "Verify in browser or documented manual verification in .ralph/progress.txt"
       ],
       "priority": 2,
       "passes": false,
