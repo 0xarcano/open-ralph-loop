@@ -1,105 +1,134 @@
 # Open Ralph Loop
 
-**Open Ralph Loop** is a small **bash driver** that runs **[OpenCode](https://opencode.ai/)** in a **Ralph-style loop**: the model works through a **product backlog** stored in your repo, **one user story per iteration**, until every story is marked done or a **maximum iteration count** is reached.
+Open Ralph Loop is an **OpenCode plugin** that executes Lisa/Ralph PRDs one story at a time.
 
-It is inspired by the [Ralph](https://github.com/snarktank/ralph) pattern and tailored for **OpenCode**.
+Lisa plans. Ralph does.
 
-**It uses the default model (local, self-hosted or commercial) configured in Opencode, unless you override it with the RALPH_MODEL environment variable, to run the tasks, then you must configure Opencode properly before run Ralph.**
+## What It Does
 
----
+Open Ralph adds `/ralph-loop` to OpenCode. It:
 
-## What it does
+1. Resolves a Lisa/Ralph JSON PRD.
+2. Creates or reuses the matching progress file.
+3. Starts an OpenCode-native loop in the current session.
+4. Continues when the session goes idle until the PRD is complete or max iterations is reached.
+5. Stops only when the assistant prints `<promise>COMPLETE</promise>` and every `userStories[].passes` value is `true`.
 
-1. **Pre-flight** (optional but recommended): talks to your model server’s OpenAI-compatible API (`GET …/v1/models`) to read `max_model_len` and **cap completion tokens** so prompts + tools + output stay inside context (important for ~32k windows).
-2. **Loop**: for each iteration, runs `opencode run` with your **Ralph agent** and a **prompt** that instructs the model to read `.ralph/prd.json`, pick the next story, implement it, run checks, commit, and update progress.
-3. **Stops** when all stories in the PRD have `passes: true`, or when **max iterations** is hit.
+No nested `opencode run` subprocess is used.
 
-OpenCode’s working directory is always the **repository root**. Ralph-specific files live under **`.ralph/`** (leading dot).
+## Install
 
-```mermaid
-flowchart LR
-  subgraph loop [Ralph loop]
-    A[opencode run] --> B{All stories pass?}
-    B -->|yes| C[Exit 0]
-    B -->|no| D{Max iterations?}
-    D -->|no| A
-    D -->|yes| E[Exit 1]
-  end
+Add the plugin to your OpenCode config:
+
+```json
+{
+  "plugin": ["open-ralph-loop"]
+}
 ```
 
----
+Restart OpenCode. On startup, the plugin installs these commands into `~/.config/opencode/commands/` if missing:
 
-## Prerequisites
+- `/ralph-loop`
+- `/cancel-ralph`
+- `/ralph-status`
 
-| Requirement | Notes |
-|-------------|--------|
-| **[OpenCode](https://opencode.ai/)** | `opencode` on `PATH` |
-| **`jq`** | Parse `.ralph/prd.json` |
-| **`curl`** | Pre-flight against your OpenAI-compatible server (vLLM, Ollama, etc.) |
-| **A model** | Configured in OpenCode (e.g. `vllm/...` or `ollama/...` in `.opencode/opencode.json`) |
+## Lisa Compatibility
 
----
+Open Ralph reads Lisa output directly. No copy into `.ralph/` is required.
 
-## Quick start
+Supported inputs:
 
-1. **Clone or copy** this template into a project you want to automate (or use this repo as-is).
+```text
+/ralph-loop docs/specs/my-feature.json
+/ralph-loop lisa/my-feature.json
+/ralph-loop my-feature
+/ralph-loop
+```
 
-2. **Configure OpenCode** so `opencode run` can reach your provider (see your project’s `.opencode/opencode.json` or global config).
+Resolution order for a slug such as `my-feature`:
 
-3. **Ralph environment** (optional but typical):
+1. `docs/specs/my-feature.json`
+2. `lisa/my-feature.json`
+3. `.ralph/my-feature.json`
+4. `.ralph/prd.json`
 
-   ```bash
-   cp .ralph/.env.example.minimal .ralph/.env
-   # Edit .ralph/.env — set RALPH_LLM_PROVIDER (ollama | vllm) if not inferred from the model id,
-   # and RALPH_LLM_API_KEY if your server requires a bearer token
-   ```
+Progress files:
 
-   Full list of variables: **`.ralph/.env.example`**.
+- `docs/specs/my-feature.json` -> `docs/specs/my-feature-progress.txt`
+- `lisa/my-feature.json` -> `lisa/my-feature-progress.txt`
+- `.ralph/prd.json` -> `.ralph/progress.txt`
 
-4. **Product backlog**:
+Story ordering:
 
-   ```bash
-   cp .ralph/prd.json.example .ralph/prd.json
-   # Edit user stories, branch name, priorities
-   ```
+- If `priority` exists, the lowest numeric value wins.
+- Otherwise Lisa categories are used in order: `setup`, `core`, `integration`, `polish`.
+- Ties use the original array order.
 
-5. **Run the loop** from the **repository root**:
+## Commands
 
-   ```bash
-   ./ralph.sh          # default: 10 iterations
-   ./ralph.sh 25       # up to 25 iterations
-   ```
+```text
+/ralph-loop <spec-or-slug>
+```
 
-   On first run, `.ralph/progress.txt` is created if missing. Example PRD and prompt text ship under `.ralph/`; adjust them to match your product.
+Starts a loop for a PRD path or feature slug.
 
----
+```text
+/cancel-ralph
+```
 
-## Key files
+Cancels the active loop by deleting `.opencode/ralph-loop.local.md`.
 
-| Path | Role |
-|------|------|
-| **`ralph.sh`** | Wrapper; calls `.ralph/ralph.sh` |
-| **`.ralph/ralph.sh`** | Loop, pre-flight, progress rotation |
-| **`.ralph/.env`** | Secrets and `RALPH_*` / `OPENCODE_*` (not committed; use `.env.example` as reference) |
-| **`.ralph/prd.json`** | User stories, `passes`, `branchName`, priorities |
-| **`.ralph/progress.txt`** | Story log, iteration log, codebase patterns |
-| **`.ralph/prompt.md`** | Per-run **task** text (loop workflow, paths, stop condition) |
-| **`.opencode/agents/ralph.md`** | **Agent** definition: tools, mode, and stable OpenCode instructions |
+```text
+/ralph-status
+```
 
-The prompt file is passed as the **message** to each `opencode run`; the agent file configures **how** OpenCode runs (tools, context discipline). Set `RALPH_PROMPT_FILE` in `.ralph/.env` if you use a different prompt path.
+Shows active loop state, PRD path, progress path, iteration count, and next story hint.
 
----
+## State
 
-## Configuration tips
+Runtime state is stored in:
 
-- **Provider:** defaults to **vLLM** (explicit in `.env.example*`, and when **`RALPH_LLM_PROVIDER`** is unset the model id must be **`ollama/...`** to use Ollama; everything else follows vLLM URL rules). Set **`RALPH_LLM_PROVIDER=ollama`** for Ollama when the model id is not `ollama/...`. **`RALPH_LLM_API_BASE`** is the OpenAI-compatible root including **`/v1`** (per provider: Ollama `http://127.0.0.1:11434/v1` when provider is ollama, vLLM from OpenCode `baseURL` when provider is vllm).
-- **Tight context (~32k):** when the server reports `max_model_len`, pre-flight caps completion tokens; tune **`RALPH_MAX_OUTPUT_TOKENS`**, **`RALPH_COMPLETION_HARD_CAP`**, and **`RALPH_MIN_CTX`**. Ollama often omits `max_model_len` on **`GET /v1/models`**; use **`RALPH_FALLBACK_MAX_OUTPUT`** if needed.
-- **Cannot reach the server from the shell** (e.g. WSL networking): set **`RALPH_LLM_API_BASE`** to a URL that **`curl` can reach**, matching OpenCode’s server.
-- **Tool calling:** local OpenAI stacks should return real **`tool_calls`**; for Qwen on vLLM, prefer **Instruct** (non-Coder) checkpoints and **`--enable-auto-tool-choice`** / **`--tool-call-parser hermes`** as described in `.ralph/.env.example`.
+```text
+.opencode/ralph-loop.local.md
+```
 
----
+This file is intentionally ignored by git. Delete it to cancel a loop manually.
 
-## Inspiration & license
+## PRD Shape
 
-- Pattern: [snarktank/ralph](https://github.com/snarktank/ralph)  
-- License: see [LICENSE](LICENSE).
+Open Ralph expects Lisa/Ralph JSON:
+
+```json
+{
+  "project": "user-authentication",
+  "branchName": "ralph/user-authentication",
+  "description": "User authentication",
+  "userStories": [
+    {
+      "id": "US-001",
+      "category": "setup",
+      "title": "Database schema for users",
+      "description": "As a developer, I want user tables created",
+      "acceptanceCriteria": ["Migration creates users table"],
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
+```
+
+## Legacy Shell Files
+
+Older versions used `./ralph.sh` and `.ralph/ralph.sh` as a bash outer loop. Those files now print migration guidance only; the plugin is the canonical runtime.
+
+## Development
+
+```bash
+npm run typecheck
+```
+
+The plugin entrypoint is `src/index.ts`.
+
+## License
+
+MIT
