@@ -6,6 +6,11 @@
 # Logs and caches
 *.log
 .cache/
+node_modules/
+dist/
+
+# Open Ralph local state
+.opencode/ralph-loop.local.md
 
 # OS
 .DS_Store
