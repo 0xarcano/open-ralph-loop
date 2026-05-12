@@ -3,10 +3,16 @@
   "version": "0.1.0",
   "description": "OpenCode-native Ralph Loop plugin for Lisa PRDs",
   "type": "module",
-  "main": "src/index.ts",
-  "exports": "./src/index.ts",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "types": "./dist/index.d.ts",
   "files": [
-    "src/",
+    "dist/",
     "commands/",
     "README.md",
     "LICENSE"
@@ -18,12 +24,22 @@
     "lisa",
     "ai-agent"
   ],
+  "author": "0xarcano <prodasl@hotmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/0xarcano/open-ralph-loop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/0xarcano/open-ralph-loop/issues"
+  },
+  "homepage": "https://github.com/0xarcano/open-ralph-loop#readme",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "npm run build && node --test test/*.test.mjs",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "prepublishOnly": "npm run check"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
