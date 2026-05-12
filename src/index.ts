@@ -149,9 +149,6 @@ function slugify(input: string) {
 function progressForPrd(prdPath: string) {
   const ext = extname(prdPath)
   const base = ext ? prdPath.slice(0, -ext.length) : prdPath
-  if (prdPath.endsWith("/.ralph/prd.json") || prdPath.endsWith("\\.ralph\\prd.json")) {
-    return join(dirname(prdPath), "progress.txt")
-  }
   return `${base}-progress.txt`
 }
 
@@ -166,18 +163,16 @@ function resolvePrd(root: string, spec?: string) {
       const slug = slugify(raw)
       candidates.push(resolve(root, "docs/specs", `${slug}.json`))
       candidates.push(resolve(root, "lisa", `${slug}.json`))
-      candidates.push(resolve(root, ".ralph", `${slug}.json`))
     }
   }
 
   candidates.push(resolve(root, "docs/specs/prd.json"))
   candidates.push(resolve(root, "lisa/prd.json"))
-  candidates.push(resolve(root, ".ralph/prd.json"))
 
   const found = candidates.find(fileExists)
   if (!found) {
     const searched = candidates.map((path) => `- ${toProjectPath(root, path)}`).join("\n")
-    throw new Error(`No Ralph/Lisa PRD JSON found. Searched:\n${searched}`)
+    throw new Error(`No Lisa PRD JSON found. Searched:\n${searched}`)
   }
   return found
 }
@@ -306,7 +301,7 @@ export const OpenRalphLoopPlugin: Plugin = async (ctx) => {
   return {
     tool: {
       ralph_start: tool({
-        description: "Start Open Ralph Loop from a Lisa/Ralph PRD JSON path or feature slug.",
+        description: "Start Open Ralph Loop from a Lisa PRD JSON path or feature slug.",
         args: {
           spec: tool.schema
             .string()

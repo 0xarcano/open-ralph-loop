@@ -1,8 +1,8 @@
 ---
-description: Start Open Ralph Loop for a Lisa/Ralph PRD
+description: Start Open Ralph Loop for a Lisa PRD
 ---
 
-Start Open Ralph Loop for this Lisa/Ralph spec:
+Start Open Ralph Loop for this Lisa spec:
 
 `$ARGUMENTS`
 

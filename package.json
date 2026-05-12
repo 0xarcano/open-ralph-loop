@@ -1,7 +1,7 @@
 {
   "name": "open-ralph-loop",
   "version": "0.1.0",
-  "description": "OpenCode-native Ralph Loop plugin with Lisa PRD compatibility",
+  "description": "OpenCode-native Ralph Loop plugin for Lisa PRDs",
   "type": "module",
   "main": "src/index.ts",
   "exports": "./src/index.ts",

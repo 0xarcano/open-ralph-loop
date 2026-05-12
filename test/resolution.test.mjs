@@ -49,13 +49,13 @@ test("resolves Lisa CLI specs from lisa by explicit path", () => {
   }
 })
 
-test("falls back to .ralph/prd.json", () => {
+test("falls back to lisa/prd.json", () => {
   const { root, cleanup } = fixture()
   try {
-    const prd = join(root, ".ralph/prd.json")
+    const prd = join(root, "lisa/prd.json")
     writeJson(prd, { userStories: [] })
     assert.equal(resolvePrd(root), prd)
-    assert.equal(progressForPrd(prd), join(root, ".ralph/progress.txt"))
+    assert.equal(progressForPrd(prd), join(root, "lisa/prd-progress.txt"))
   } finally {
     cleanup()
   }

@@ -1,6 +1,6 @@
 # Open Ralph Loop
 
-Open Ralph Loop is an **OpenCode plugin** that executes Lisa/Ralph PRDs one story at a time.
+Open Ralph Loop is an **OpenCode plugin** that executes Lisa PRDs one story at a time.
 
 Lisa plans. Ralph does.
 
@@ -8,7 +8,7 @@ Lisa plans. Ralph does.
 
 Open Ralph adds `/ralph-loop` to OpenCode. It:
 
-1. Resolves a Lisa/Ralph JSON PRD.
+1. Resolves a Lisa JSON PRD.
 2. Creates or reuses the matching progress file.
 3. Starts an OpenCode-native loop in the current session.
 4. Continues when the session goes idle until the PRD is complete or max iterations is reached.
@@ -32,9 +32,9 @@ Restart OpenCode. On startup, the plugin installs these commands into `~/.config
 - `/cancel-ralph`
 - `/ralph-status`
 
-## Lisa Compatibility
+## PRD Resolution
 
-Open Ralph reads Lisa output directly. No copy into `.ralph/` is required.
+Open Ralph reads Lisa output directly.
 
 Supported inputs:
 
@@ -49,14 +49,11 @@ Resolution order for a slug such as `my-feature`:
 
 1. `docs/specs/my-feature.json`
 2. `lisa/my-feature.json`
-3. `.ralph/my-feature.json`
-4. `.ralph/prd.json`
 
 Progress files:
 
 - `docs/specs/my-feature.json` -> `docs/specs/my-feature-progress.txt`
 - `lisa/my-feature.json` -> `lisa/my-feature-progress.txt`
-- `.ralph/prd.json` -> `.ralph/progress.txt`
 
 Story ordering:
 
@@ -96,7 +93,7 @@ This file is intentionally ignored by git. Delete it to cancel a loop manually.
 
 ## PRD Shape
 
-Open Ralph expects Lisa/Ralph JSON:
+Open Ralph expects Lisa JSON:
 
 ```json
 {
@@ -116,10 +113,6 @@ Open Ralph expects Lisa/Ralph JSON:
   ]
 }
 ```
-
-## Legacy Shell Files
-
-Older versions used `./ralph.sh` and `.ralph/ralph.sh` as a bash outer loop. Those files now print migration guidance only; the plugin is the canonical runtime.
 
 ## Development
 
